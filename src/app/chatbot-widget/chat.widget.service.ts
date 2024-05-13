@@ -1,5 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { filter, map, Observable, startWith } from 'rxjs';
+import { catchError, filter, map, Observable, startWith } from 'rxjs';
 import {
   HttpClient,
   HttpDownloadProgressEvent,
@@ -7,7 +7,11 @@ import {
   HttpEventType,
   HttpResponse,
 } from '@angular/common/http';
-import { environment } from './../../environments/environment';
+import {
+  HttpErrorHandler,
+  HandleError,
+} from '../service/http-error-handler.service';
+import { environment } from '../../environments/environment';
 
 export interface Message {
   id: string;
@@ -19,8 +23,12 @@ export interface Message {
 @Injectable({
   providedIn: 'root',
 })
-export class ChatServiceService {
+export class ChatWidgetService {
+  chatUrlPath = 'api/v1/chat/';
+  private handleError: HandleError;
+
   private readonly http = inject(HttpClient);
+  private httpErrorHandler = inject(HttpErrorHandler);
 
   private readonly _messages = signal<Message[]>([]);
   private readonly _completeMessages = signal<Message[]>([]);
@@ -29,8 +37,16 @@ export class ChatServiceService {
   readonly messages = this._messages.asReadonly();
   readonly generatingInProgress = this._generatingInProgress.asReadonly();
 
-  constructor() {}
+  constructor() {
+    this.handleError =
+      this.httpErrorHandler.createHandleError('ChatWidgetService');
+  }
 
+  /**
+   * Send user message to backend & Set user/assistant messages.
+   *
+   * @param prompt = user question
+   */
   sendMessage(prompt: string): void {
     this._generatingInProgress.set(true);
 
@@ -56,12 +72,17 @@ export class ChatServiceService {
     });
   }
 
+  /**
+   * Receive stream response from backend.
+   *
+   * @param prompt = user question
+   */
   private getChatResponseStream(prompt: string): Observable<Message> {
     const id = window.crypto.randomUUID();
 
     return this.http
       .post(
-        environment.apiUrl + 'api/v1/chat/' + id,
+        environment.apiUrl + this.chatUrlPath + id,
         {
           userQuestion: prompt,
         },
@@ -98,7 +119,8 @@ export class ChatServiceService {
           text: '',
           fromUser: false,
           generating: true,
-        })
+        }),
+        catchError(this.handleError<Message>('[post-chat]'))
       );
   }
 }
